@@ -5,6 +5,7 @@ __pycache__/
 *.log
 *.DS_Store
 *.pay
+*.xml
 build/
 dist/
 *.spec
