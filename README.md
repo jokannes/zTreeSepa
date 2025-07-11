@@ -4,16 +4,17 @@ This is a tool to create a SEPA XML batch payment file from zTree payment files 
 # Description
 The zTree software for economic experiments (Fischbacher, 2007) automatically creates a payment file at the end of a lab session. The zTreeSepa tool allows manual addition of surplus participants and automatic conversion of the payment info to a SEPA XML payment file according to the pain.001.001.03 schema. 
 
-# How to get a payment file from zTree
+# Usage
+## How to get a payment file from zTree
 For detailed information, please refer to the zTree manual. In short, after your treatment(s), you should run a questionnaire with an address form in it. After the conclusion of the questionnaire, the payment files are automatically created.
 
-# Setting your institution details
+## Setting your institution details
 You can set your institution's banking details by amending the company info in the top half of the window. This is the debitor account of the payment. Specify the currency with the three-digit code according to the ISO 4217 standard. The reference field will be the same for each individual transaction. Note that your configuration is saved automatically, so that you don't have to re-enter your institution details each time you use the tool.
 
-# Importing the payment file and adding surplus participants
+## Importing the payment file and adding surplus participants
 Import the combo payment file (format: DATE_TIME_combo.pay) into the tool. It will be automatically formatted according to the output format of the payment file. You will see a preview of the data in the file, with the option to add surplus participants. If you are happy with the preview, you can generate the SEPA payment file.
 
-# Getting the file to the bank
+## Getting the file to the bank
 Once the SEPA file has been generated, you can directly transfer it to your bank. Depending on the setup, you can use an automatic electronic payment tool for this or you can upload the file to your online banking platform, if this capability is offered.
 
 # Capabilities & Limitations
