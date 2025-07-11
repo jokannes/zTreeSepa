@@ -5,6 +5,9 @@ This is a tool to create a SEPA XML batch payment file from zTree payment files 
 The zTree software for economic experiments (Fischbacher, 2007) automatically creates a payment file at the end of a lab session. The zTreeSepa tool allows manual addition of surplus participants and automatic conversion of the payment info to a SEPA XML payment file according to the pain.001.001.03 schema. 
 
 # Usage
+## Downloading the tool
+You can either build the tool yourself using Python or you can download the .exe in the Releases area. For that, click on the tag at the top of the repository and download the .exe file.
+
 ## How to get a payment file from zTree
 For detailed information, please refer to the zTree manual. In short, after your treatment(s), you should run a questionnaire with an address form in it. After the conclusion of the questionnaire, the payment files are automatically created.
 
