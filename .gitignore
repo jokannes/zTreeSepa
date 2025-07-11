@@ -4,6 +4,7 @@ __pycache__/
 *.pyd
 *.log
 *.DS_Store
+*.pay
 build/
 dist/
 *.spec
