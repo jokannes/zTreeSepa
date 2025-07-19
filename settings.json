@@ -1,9 +1,0 @@
-{
-    "company_name": "Thurgauische Stiftung für Wissenschaft und Forschung",
-    "company_iban": "DE41690500010026489898",
-    "company_bic": "SOLADES1KNZ",
-    "currency": "EUR",
-    "placeholder_reference": "e.g., Lakelab 10.07.2025 13:30 Uhr",
-    "placeholder_experiment": "e.g., 123_AB_XY_ExperimentName",
-    "default_amount": 7.00
-}
