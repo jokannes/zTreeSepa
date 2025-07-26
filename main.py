@@ -281,7 +281,20 @@ def preview_and_confirm(data_rows, config):
                 except Exception as e:
                     raise Exception(f"Error in row {idx} ({row['name']} - {row['iban']}): {e}")
     
-            output_path = filedialog.asksaveasfilename(defaultextension=".xml", filetypes=[("XML files", "*.xml")])
+            # Build safe default filename
+            experiment_raw = normalize_umlauts(config["experiment"])
+            reference_raw = normalize_umlauts(config["reference"])
+            safe_experiment = experiment_raw.replace(" ", "_").replace(".", "").replace(":", "")
+            safe_reference = reference_raw.replace(" ", "_").replace(".", "").replace(":", "")
+            default_filename = f"{safe_experiment}_{safe_reference}.xml"
+            
+            # Show dialog with prefilled name
+            output_path = filedialog.asksaveasfilename(
+                defaultextension=".xml",
+                filetypes=[("XML files", "*.xml")],
+                initialfile=default_filename
+            )
+
             if output_path:
                 with open(output_path, "wb") as out:
                     out.write(sepa.export())
