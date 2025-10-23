@@ -255,7 +255,7 @@ def preview_and_confirm(data_rows, config):
         entry_row_iban = tk.Entry(add_window, width=40)
         entry_row_amount = tk.Entry(add_window, width=20, justify="left")
         
-        add_placeholder(entry_row_name, "e.g., Lastname, Firstname")
+        add_placeholder(entry_row_name, "e.g., Firstname Lastname")
         add_placeholder(entry_row_amount, "e.g., 7")
 
         entry_row_name.grid(row=0, column=1, padx=10, pady=5)
