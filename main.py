@@ -319,10 +319,13 @@ def generate_sepa_preview(payment_file, config, use_bic_lookup):
     with open(payment_file, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f, delimiter='\t')
         for row in reader:
-            name = normalize_umlauts(row.get('Name', '').strip())
+            first = row.get('firstName', '').strip()
+            last = row.get('lastName', '').strip()
+            name = normalize_umlauts(f"{first} {last}".strip())
+        
             iban_raw = row.get('adress', '').strip().replace(" ", "")
             amount_str = row.get('Payment', '').strip()
-
+            
             if not name or not iban_raw or not amount_str:
                 continue
 
