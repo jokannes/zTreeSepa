@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jul  9 16:22:28 2025
+Created on Wed Jul 9 16:22:28 2025
 
 zTree payment file to SEPA XML converter
 
@@ -84,7 +84,7 @@ def add_placeholder(entry, placeholder):
     entry.bind("<FocusOut>", on_focus_out)
 
 def select_file():
-    company_name = entry_name.get().strip()
+    company_name = normalize_umlauts(entry_name.get().strip())
     company_iban_raw = entry_iban.get().strip().replace(" ", "")
     company_bic = entry_bic.get().strip()
     currency = entry_currency.get().strip().upper()
@@ -314,11 +314,25 @@ def preview_and_confirm(data_rows, config):
     tk.Button(btn_frame, text="Generate SEPA XML", command=confirm_and_generate).grid(row=0, column=1, padx=10)
     tk.Button(btn_frame, text="Cancel", command=preview_window.destroy).grid(row=0, column=2, padx=10)
 
+"""
+# Check payment file encoding (zTree versions <6 use ascii and 6 uses utf-8)
+def detect_file_encoding(path, sample_size=4096):
+    with open(path, "rb") as bf:
+        raw = bf.read(sample_size)
+    result = chardet.detect(raw)
+    return result.get("encoding") or "utf-8"
+"""
+
 def generate_sepa_preview(payment_file, config, use_bic_lookup):
     rows = []
     with open(payment_file, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f, delimiter='\t')
         for row in reader:
+            
+            # Skip rows that don't contain payee info (in files from zTree versions <6 it might otherwise try to strip other rows that are NoneType)
+            if not row.get('adress') or not row.get('Payment'):
+                continue
+            
             first = row.get('firstName', '').strip()
             last = row.get('lastName', '').strip()
             name = normalize_umlauts(f"{first} {last}".strip())
@@ -326,9 +340,6 @@ def generate_sepa_preview(payment_file, config, use_bic_lookup):
             iban_raw = row.get('adress', '').strip().replace(" ", "")
             amount_str = row.get('Payment', '').strip()
             
-            if not name or not iban_raw or not amount_str:
-                continue
-
             try:
                 iban_obj = IBAN(iban_raw)
                 amount = float(amount_str.replace(',', '.'))
@@ -355,11 +366,17 @@ def generate_sepa_preview(payment_file, config, use_bic_lookup):
     rows.sort(key=lambda r: r["name"].lower())
     preview_and_confirm(rows, config)
 
-# --- GUI Setup ---
+# Set up GUI
 
 root = tk.Tk()
 root.title("zTreeSepa")
-root.geometry("600x480")
+root.geometry("800x480")
+
+if getattr(sys, 'frozen', False):
+    try:
+        root.iconbitmap(sys.executable)
+    except Exception:
+        pass
 
 settings = load_settings()
 
@@ -372,12 +389,12 @@ frame_settings.pack(fill="x", padx=20, pady=10)
 info_label = tk.Label(root, text="Company details are read-only.\nTo change, edit settings.json manually.", fg="gray", justify="left")
 info_label.pack(pady=(0, 10), padx=20, anchor="w")
 
-entry_name = tk.Entry(frame_settings, width=40, justify="left")
-entry_iban = tk.Entry(frame_settings, width=40, justify="left")
+entry_name = tk.Entry(frame_settings, width=60, justify="left")
+entry_iban = tk.Entry(frame_settings, width=60, justify="left")
 entry_bic = tk.Entry(frame_settings, width=20, justify="left")
 entry_currency = tk.Entry(frame_settings, width=10, justify="left")
-entry_reference = tk.Entry(frame_settings, width=40, justify="left")
-entry_experiment = tk.Entry(frame_settings, width=40, justify="left")
+entry_reference = tk.Entry(frame_settings, width=60, justify="left")
+entry_experiment = tk.Entry(frame_settings, width=60, justify="left")
 
 widgets = [
     ("Company Name:", entry_name),
@@ -410,8 +427,11 @@ experiment_placeholder = settings.get("placeholder_experiment", "e.g. Study A - 
 entry_reference.delete(0, tk.END)
 entry_experiment.delete(0, tk.END)
 
-add_placeholder(entry_reference, reference_placeholder)
-add_placeholder(entry_experiment, experiment_placeholder)
+lbl_reference_placeholder = tk.Label(frame_settings, text=reference_placeholder, fg="gray", anchor="w", justify="left")
+lbl_reference_placeholder.grid(row=4, column=2, sticky="w", padx=(5,10))
+
+lbl_experiment_placeholder = tk.Label(frame_settings, text=experiment_placeholder, fg="gray", anchor="w", justify="left")
+lbl_experiment_placeholder.grid(row=5, column=2, sticky="w", padx=(5,10))
 
 tk.Button(root, text="Import payment file", command=select_file, height=2, width=25).pack(pady=20)
 
