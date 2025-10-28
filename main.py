@@ -12,8 +12,10 @@ from tkinter import filedialog, messagebox, ttk
 import csv
 import json
 import os
+import io
 import sys
 import datetime
+import chardet
 from schwifty import IBAN
 from sepaxml import SepaTransfer
 
@@ -106,7 +108,8 @@ def select_file():
     file_path = filedialog.askopenfilename(filetypes=[("Import payment file", "*.pay")])
     if file_path:
         try:
-            generate_sepa_preview(file_path, {
+            raw_file = decode_file(file_path)
+            generate_sepa_preview(raw_file, {
                 "name": company_name,
                 "IBAN": company_iban_raw,
                 "BIC": company_bic,
@@ -314,50 +317,57 @@ def preview_and_confirm(data_rows, config):
     tk.Button(btn_frame, text="Generate SEPA XML", command=confirm_and_generate).grid(row=0, column=1, padx=10)
     tk.Button(btn_frame, text="Cancel", command=preview_window.destroy).grid(row=0, column=2, padx=10)
 
-"""
-# Check payment file encoding (zTree versions <6 use ascii and 6 uses utf-8)
-def detect_file_encoding(path, sample_size=4096):
-    with open(path, "rb") as bf:
-        raw = bf.read(sample_size)
-    result = chardet.detect(raw)
-    return result.get("encoding") or "utf-8"
-"""
 
-def generate_sepa_preview(payment_file, config, use_bic_lookup):
+def decode_file(payment_file):
+    with open(payment_file, "rb") as f:
+        rawdata = f.read()
+
+    result = chardet.detect(rawdata)
+    encoding = result["encoding"]
+    
+    try:
+        text = rawdata.decode(encoding)
+    except Exception as e:
+        print(f"Decoding failed ({encoding}): {e}.")
+    
+    return text
+    
+
+def generate_sepa_preview(file_content, config, use_bic_lookup):
     rows = []
-    with open(payment_file, newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f, delimiter='\t')
-        for row in reader:
-            
-            # Skip rows that don't contain payee info (in files from zTree versions <6 it might otherwise try to strip other rows that are NoneType)
-            if not row.get('adress') or not row.get('Payment'):
-                continue
-            
-            first = row.get('firstName', '').strip()
-            last = row.get('lastName', '').strip()
-            name = normalize_umlauts(f"{first} {last}".strip())
+    f = io.StringIO(file_content)
+    reader = csv.DictReader(f, delimiter='\t')
+    for row in reader:
         
-            iban_raw = row.get('adress', '').strip().replace(" ", "")
-            amount_str = row.get('Payment', '').strip()
-            
-            try:
-                iban_obj = IBAN(iban_raw)
-                amount = float(amount_str.replace(',', '.'))
-            except Exception:
-                continue
+        # Skip rows that don't contain payee info (in files from zTree versions <6 it might otherwise try to strip other rows that are NoneType)
+        if not row.get('adress') or not row.get('Payment'):
+            continue
+        
+        first = row.get('firstName', '').strip()
+        last = row.get('lastName', '').strip()
+        name = normalize_umlauts(f"{first} {last}".strip())
+    
+        iban_raw = row.get('adress', '').strip().replace(" ", "")
+        amount_str = row.get('Payment', '').strip()
+        
+        try:
+            iban_obj = IBAN(iban_raw)
+            amount = float(amount_str.replace(',', '.'))
+        except Exception:
+            continue
 
-            row_data = {
-                "name": name,
-                "iban": iban_raw,
-                "amount": amount,
-            }
+        row_data = {
+            "name": name,
+            "iban": iban_raw,
+            "amount": amount,
+        }
 
-            try:
-                row_data["bic"] = iban_obj.bic
-            except Exception:
-                row_data["bic"] = None
+        try:
+            row_data["bic"] = iban_obj.bic
+        except Exception:
+            row_data["bic"] = None
 
-            rows.append(row_data)
+        rows.append(row_data)
 
     if not rows:
         messagebox.showwarning("No Valid Payments", "No valid payment entries were found.")
