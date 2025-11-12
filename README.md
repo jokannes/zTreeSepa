@@ -21,6 +21,8 @@ Import the combo payment file (format: DATE_TIME_combo.pay) into the tool. It wi
 Once the SEPA file has been generated, you can directly transfer it to your bank. Depending on the setup, you can use an automatic electronic payment tool for this or you can upload the file to your online banking platform, if this capability is offered.
 
 # Capabilities & Limitations
+The tool supports payment files from zTree versions 4, 5 and 6. Other versions may work too, but I haven't tested them.
+
 The tool contains an automatic BIC (bank identifier code) lookup, so that your lab subjects don't need to input the BIC separately. It also contains an IBAN validation to ensure there are no erroneous IBAN entries. Note that you can only add new transactions, but you cannot amend existing rows in the preview. I may add this feature later depending on demand.
 
 So far, I have only tested it for payments within Germany. In theory, it should also work for other SEPA countries. Note that some countries, such as Swiss or Liechtenstein formats, require some changes to the tool that I may add in the future depending on demand.
