@@ -1,3 +1,4 @@
 schwifty
 sepaxml
 reportlab
+chardet

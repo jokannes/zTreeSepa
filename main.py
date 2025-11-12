@@ -337,19 +337,41 @@ def generate_sepa_preview(file_content, config, use_bic_lookup):
     rows = []
     f = io.StringIO(file_content)
     reader = csv.DictReader(f, delimiter='\t')
-    for row in reader:
-        
-        # Skip rows that don't contain payee info (in files from zTree versions <6 it might otherwise try to strip other rows that are NoneType)
-        if not row.get('adress') or not row.get('Payment'):
-            continue
-        
-        first = row.get('firstName', '').strip()
-        last = row.get('lastName', '').strip()
-        name = normalize_umlauts(f"{first} {last}".strip())
     
-        iban_raw = row.get('adress', '').strip().replace(" ", "")
-        amount_str = row.get('Payment', '').strip()
+    if 'adress' in reader.fieldnames:
+        old_payfile_format = False
+    else:
+        old_payfile_format = True
         
+    for row in reader:
+
+        # Logic for zTree versions 5 and above (combo-pay file)
+        if old_payfile_format == False:
+            
+            # Skip rows that don't contain payee info (in files from zTree versions <6 it might otherwise try to strip other rows that are NoneType)
+            if not row.get('adress') or not row.get('Payment'):
+                continue
+            
+            first = row.get('firstName', '').strip()
+            last = row.get('lastName', '').strip()
+            name = normalize_umlauts(f"{first} {last}".strip())
+        
+            iban_raw = row.get('adress', '').strip().replace(" ", "")
+            amount_str = row.get('Payment', '').strip()
+            
+    
+        # Different logic for older ztree versions with differently structured payment file
+        if old_payfile_format == True:
+    
+            # Skip rows that don't contain payee info (in files from zTree versions <6 it might otherwise try to strip other rows that are NoneType)
+            if not row.get('Name') or not row.get('Profit') or not row.get('Computer'):
+                continue
+            
+            name_iban_string = normalize_umlauts(row.get('Name', '').strip())
+            iban_raw_unformatted, name = [part.strip() for part in name_iban_string.split(',', 1)]                
+            iban_raw = iban_raw_unformatted.replace(" ", "")
+            amount_str = row.get('Profit', '').strip()
+
         try:
             iban_obj = IBAN(iban_raw)
             amount = float(amount_str.replace(',', '.'))
@@ -375,6 +397,7 @@ def generate_sepa_preview(file_content, config, use_bic_lookup):
 
     rows.sort(key=lambda r: r["name"].lower())
     preview_and_confirm(rows, config)
+        
 
 # Set up GUI
 
