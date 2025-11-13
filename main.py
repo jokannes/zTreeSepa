@@ -218,6 +218,31 @@ def preview_and_confirm(data_rows, config):
     for idx, row in enumerate(data_rows, 1):
         tree.insert("", "end", values=(idx, row["name"], row["iban"], row.get("bic", ""), f"{row['amount']:.2f}"))
 
+    def profit_masschange():
+        def apply_profit_masschange():
+            try:
+                delta = float(entry_amount_change.get().strip().replace(",", "."))
+            except ValueError:
+                messagebox.showerror("Invalid Input", "Please enter a valid number.")
+                return
+
+            for row in data_rows:
+                row["amount"] += delta
+
+            for item in tree.get_children():
+                tree.delete(item)
+            for idx, row in enumerate(data_rows, 1):
+                tree.insert("", "end", values=(idx, row["name"], row["iban"], row["bic"], f"{row['amount']:.2f}"))
+
+            add_window.destroy()
+
+        add_window = tk.Toplevel(preview_window)
+        add_window.title("Add amount to all payoffs")
+        tk.Label(add_window, text="Enter amount to add (e.g., 5 or -3):").grid(row=0, column=0, padx=10, pady=10)
+        entry_amount_change = tk.Entry(add_window, width=10, justify="left")
+        entry_amount_change.grid(row=0, column=1, padx=10, pady=10)
+        tk.Button(add_window, text="Apply", command=apply_profit_masschange).grid(row=1, column=0, columnspan=2, pady=10)
+
     def add_row():
         def save_row():
             name = normalize_umlauts(entry_row_name.get().strip())
@@ -313,10 +338,11 @@ def preview_and_confirm(data_rows, config):
 
     btn_frame = tk.Frame(preview_window)
     btn_frame.pack(pady=10)
-    tk.Button(btn_frame, text="Add Surplus Participant", command=add_row).grid(row=0, column=0, padx=10)
-    tk.Button(btn_frame, text="Generate SEPA XML", command=confirm_and_generate).grid(row=0, column=1, padx=10)
-    tk.Button(btn_frame, text="Cancel", command=preview_window.destroy).grid(row=0, column=2, padx=10)
 
+    tk.Button(btn_frame, text="Add amount to all payoffs", command=profit_masschange).grid(row=0, column=0, padx=10)
+    tk.Button(btn_frame, text="Add surplus participant", command=add_row).grid(row=0, column=1, padx=10)
+    tk.Button(btn_frame, text="Generate output files", command=confirm_and_generate).grid(row=0, column=2, padx=10)
+    tk.Button(btn_frame, text="Cancel", command=preview_window.destroy).grid(row=0, column=3, padx=10)
 
 def decode_file(payment_file):
     with open(payment_file, "rb") as f:
@@ -403,7 +429,7 @@ def generate_sepa_preview(file_content, config, use_bic_lookup):
 
 root = tk.Tk()
 root.title("zTreeSepa")
-root.geometry("800x480")
+root.geometry("800x360")
 
 if getattr(sys, 'frozen', False):
     try:
