@@ -246,7 +246,7 @@ def preview_and_confirm(data_rows, config):
     def add_row():
         def save_row():
             name = normalize_umlauts(entry_row_name.get().strip())
-            iban_raw = entry_row_iban.get().strip().replace(" ", "")
+            iban_raw = entry_row_iban.get().strip().replace(" ", "").upper()
             amount_str = entry_row_amount.get().strip()
 
             if not name or not iban_raw or not amount_str:
@@ -382,7 +382,7 @@ def generate_sepa_preview(file_content, config, use_bic_lookup):
             last = row.get('lastName', '').strip()
             name = normalize_umlauts(f"{first} {last}".strip())
         
-            iban_raw = row.get('adress', '').strip().replace(" ", "")
+            iban_raw = row.get('adress', '').strip().replace(" ", "").upper()
             amount_str = row.get('Payment', '').strip()
             
     
