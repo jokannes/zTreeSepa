@@ -7,24 +7,32 @@ zTree payment file to SEPA XML converter
 @author: Johannes
 """
 
+
+# Version info
+version = "0.5.0"
+version_date = "07 December 2025"
+github_link = "https://github.com/jokannes/zTreeSepa"
+
+
+# Packages
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-import csv
-import json
 import os
-import io
 import sys
 import datetime
-import chardet
+import webbrowser
 from schwifty import IBAN
 from sepaxml import SepaTransfer
 
-# For PDF output
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
+# Import own functions
+from utils import NoUmlauts, DecodeFile
+from settings import LoadSettings
+from pdf import MakePDF
+from parse import ParseFile
+
+
+# Get correct working directory
 if getattr(sys, 'frozen', False):
     # Running as exe
     base_path = sys._MEIPASS
@@ -33,153 +41,61 @@ else:
     # Running as script
     app_path = os.path.dirname(os.path.abspath(__file__))
 
-SETTINGS_FILE = os.path.join(app_path, "settings.json")
-def load_settings():
-    default_settings = {
-        "company_name": "My Company GmbH",
-        "company_iban": "DE02100100109307118603",
-        "company_bic": "PBNKDEFFXXX",
-        "currency": "EUR",
-        "placeholder_reference": "e.g., Lab Payment 10 July 2025 - 10am",
-        "placeholder_experiment": "e.g., Study A - Session 1",
-        "default_amount": 5.00
-    }
 
-    if not os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8-sig") as f:
-                json.dump(default_settings, f, indent=4)
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not create default settings.json: {e}")
-            return default_settings
+# Load settings (payer banking info is here)
+settings_file = os.path.join(app_path, "settings.json")
+settings = LoadSettings(settings_file)
 
-    try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        messagebox.showerror("Error", f"Failed to load settings.json: {e}")
-        return default_settings
 
-def normalize_umlauts(text):
-    return (
-        text.replace("ä", "ae").replace("Ä", "Ae")
-            .replace("ö", "oe").replace("Ö", "Oe")
-            .replace("ü", "ue").replace("Ü", "Ue")
-            .replace("ß", "ss")
-    )
+# Function for reading a .pay file
+def ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference_placeholder, experiment, experiment_placeholder):
+    payer_name = NoUmlauts(payer_name.strip())
+    payer_iban = payer_iban.strip().replace(" ", "")
+    payer_bic = payer_bic.strip()
+    currency = currency.strip().upper()
+    reference = reference.get().strip()
+    experiment = experiment.get().strip()
 
-def add_placeholder(entry, placeholder):
-    entry.insert(0, placeholder)
-    entry.config(fg="gray")
-
-    def on_focus_in(event):
-        if entry.get() == placeholder:
-            entry.delete(0, tk.END)
-            entry.config(fg="black")
-
-    def on_focus_out(event):
-        if not entry.get():
-            entry.insert(0, placeholder)
-            entry.config(fg="gray")
-
-    entry.bind("<FocusIn>", on_focus_in)
-    entry.bind("<FocusOut>", on_focus_out)
-
-def select_file():
-    company_name = normalize_umlauts(entry_name.get().strip())
-    company_iban_raw = entry_iban.get().strip().replace(" ", "")
-    company_bic = entry_bic.get().strip()
-    currency = entry_currency.get().strip().upper()
-    reference = entry_reference.get().strip()
-    experiment = entry_experiment.get().strip()
-
-    if (not company_name or not company_iban_raw or not currency or
+    if (not payer_name or not payer_iban or not currency or
         not reference or reference == reference_placeholder or
         not experiment or experiment == experiment_placeholder):
         messagebox.showwarning("Missing Info", "Please fill in all required fields, including Reference and Experiment Name.")
         return
 
     try:
-        IBAN(company_iban_raw)
+        IBAN(payer_iban)
     except Exception:
-        messagebox.showerror("Invalid IBAN", "Company IBAN is not valid.")
+        messagebox.showerror("Invalid IBAN", "Payer IBAN is not valid.")
         return
 
     file_path = filedialog.askopenfilename(filetypes=[("Import payment file", "*.pay")])
-    if file_path:
-        try:
-            raw_file = decode_file(file_path)
-            generate_sepa_preview(raw_file, {
-                "name": company_name,
-                "IBAN": company_iban_raw,
-                "BIC": company_bic,
-                "batch": True,
-                "currency": currency,
-                "reference": reference,
-                "experiment": experiment
-            }, use_bic_lookup=True)
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+    if not file_path:
+        return
 
-def generate_payment_pdf(file_path, experiment_name, payments, currency, reference):
-    doc = SimpleDocTemplate(file_path, pagesize=landscape(A4))
-    styles = getSampleStyleSheet()
-    elements = []
+    try:
+        raw_file = DecodeFile(file_path)
+        rows = ParseFile(raw_file)
 
-    # Title
-    title = Paragraph(f"<b>Experiment: {experiment_name}</b>", styles['Title'])
-    elements.append(title)
-    elements.append(Spacer(1, 12))
+        if not rows:
+            messagebox.showwarning("No Valid Payments", "No valid payment entries were found.")
+            return
 
-    # Table data: header + rows
-    data = [["Index", "Name", "IBAN", "Amount", "Currency", "Reference"]]
-    total_sum = 0
+        rows.sort(key=lambda r: r["name"].lower())
+        FileView(rows, {
+            "name": payer_name,
+            "IBAN": payer_iban,
+            "BIC": payer_bic,
+            "batch": True,
+            "currency": currency,
+            "reference": reference,
+            "experiment": experiment
+        })
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
 
-    for idx, payment in enumerate(payments, 1):
-        data.append([
-            str(idx),
-            payment["name"],
-            payment["iban"],
-            f"{payment['amount']:.2f}",
-            currency,
-            reference
-        ])
-        total_sum += payment['amount']
 
-    # Table style
-    table = Table(data, repeatRows=1, hAlign='LEFT')
-    table_style = TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.grey),
-        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
-        ('ALIGN',(0,0),(-1,-1),'LEFT'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,0), 12),
-        ('BOTTOMPADDING', (0,0), (-1,0), 8),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-    ])
-    table.setStyle(table_style)
-
-    elements.append(table)
-    elements.append(Spacer(1, 12))
-
-    # Total sum
-    total_amount = sum(p["amount"] for p in payments)
-    elements.append(Spacer(1, 12))
-    elements.append(Paragraph(f"<b>Gesamtsumme:</b> {total_amount:.2f} {currency}", styles['Normal']))
-    
-    # Signature line
-    elements.append(Spacer(1, 24))
-    elements.append(Paragraph("Unterschrift Experimentator: ____________________________", styles['Normal']))
-    
-    # Timestamp
-    timestamp = datetime.datetime.now().strftime("Datei erstellt am %d.%m.%Y um %H:%M Uhr")
-    elements.append(Spacer(1, 12))
-    elements.append(Paragraph(f"<i>{timestamp}</i>", styles['Normal']))
-
-    # Build PDF
-    doc.build(elements)
-
-def preview_and_confirm(data_rows, config):
+# Set up the file viewer for after a .pay file has been opened
+def FileView(data_rows, config):
     preview_window = tk.Toplevel(root)
     preview_window.title("Payment Preview")
     preview_window.geometry("800x400")
@@ -210,7 +126,7 @@ def preview_and_confirm(data_rows, config):
     
     # Column headings and widths
     for col in ("Index", "Name", "IBAN", "BIC", "Amount"):
-        tree.heading(col, text=col)
+        tree.heading(col, text = col)
         anchor = "e" if col == "Amount" else "w"
         width = 60 if col in ("Index", "Amount") else 180
         tree.column(col, width=width, anchor=anchor)
@@ -238,16 +154,16 @@ def preview_and_confirm(data_rows, config):
 
         add_window = tk.Toplevel(preview_window)
         add_window.title("Add amount to all payoffs")
-        tk.Label(add_window, text="Enter amount to add (e.g., 5 or -3):").grid(row=0, column=0, padx=10, pady=10)
+        tk.Label(add_window, text = "Enter amount to add (e.g., 5 or -3):").grid(row=0, column=0, padx=10, pady=10)
         entry_amount_change = tk.Entry(add_window, width=10, justify="left")
         entry_amount_change.grid(row=0, column=1, padx=10, pady=10)
-        tk.Button(add_window, text="Apply", command=apply_profit_masschange).grid(row=1, column=0, columnspan=2, pady=10)
+        tk.Button(add_window, text = "Apply", command=apply_profit_masschange).grid(row=1, column=0, columnspan=2, pady=10)
 
-    def add_row():
-        def save_row():
-            name = normalize_umlauts(entry_row_name.get().strip())
-            iban_raw = entry_row_iban.get().strip().replace(" ", "").upper()
-            amount_str = entry_row_amount.get().strip()
+    def add_surplus_participant():
+        def save_surplus_participant():
+            name = NoUmlauts(surplus_name.get().strip())
+            iban_raw = surplus_iban.get().strip().replace(" ", "").upper()
+            amount_str = surplus_amount.get().strip()
 
             if not name or not iban_raw or not amount_str:
                 messagebox.showwarning("Missing Info", "Please complete all fields.")
@@ -275,22 +191,26 @@ def preview_and_confirm(data_rows, config):
 
         add_window = tk.Toplevel(preview_window)
         add_window.title("Add Surplus Participant")
-        tk.Label(add_window, text="Name:").grid(row=0, column=0, sticky="e")
-        tk.Label(add_window, text="IBAN:").grid(row=1, column=0, sticky="e")
-        tk.Label(add_window, text="Amount:").grid(row=2, column=0, sticky="e")
-
-        entry_row_name = tk.Entry(add_window, width=40)
-        entry_row_iban = tk.Entry(add_window, width=40)
-        entry_row_amount = tk.Entry(add_window, width=20, justify="left")
         
-        add_placeholder(entry_row_name, "e.g., Firstname Lastname")
-        add_placeholder(entry_row_amount, "e.g., 7")
+        tk.Label(add_window, text = "Name:").grid(row=0, column=0, sticky="e")
+        tk.Label(add_window, text = "IBAN:").grid(row=1, column=0, sticky="e")
+        tk.Label(add_window, text = "Amount:").grid(row=2, column=0, sticky="e")
 
-        entry_row_name.grid(row=0, column=1, padx=10, pady=5)
-        entry_row_iban.grid(row=1, column=1, padx=10, pady=5)
-        entry_row_amount.grid(row=2, column=1, padx=10, pady=5)
+        surplus_name = tk.Entry(add_window, width=40)
+        surplus_iban = tk.Entry(add_window, width=40)
+        surplus_amount = tk.Entry(add_window, width=40, justify="left")
+        
+        name_placeholder = tk.Label(add_window, text = "Format: Firstname Lastname", fg="gray", anchor="w", justify="left")
+        amount_placeholder = tk.Label(add_window, text = "Format: 7", fg="gray", anchor="w", justify="left")
 
-        tk.Button(add_window, text="Add", command=save_row).grid(row=3, column=0, columnspan=2, pady=10)
+        surplus_name.grid(row=0, column=1, padx=10, pady=5)
+        surplus_iban.grid(row=1, column=1, padx=10, pady=5)
+        surplus_amount.grid(row=2, column=1, padx=10, pady=5)
+        
+        name_placeholder.grid(row=0, column=2, sticky="w", padx=(5,10))
+        amount_placeholder.grid(row=2, column=2, sticky="w", padx=(5,10))        
+
+        tk.Button(add_window, text = "Add", command = save_surplus_participant).grid(row=3, column=0, columnspan=2, pady=10)
 
     def confirm_and_generate():
         try:
@@ -310,8 +230,8 @@ def preview_and_confirm(data_rows, config):
                     raise Exception(f"Error in row {idx} ({row['name']} - {row['iban']}): {e}")
     
             # Build safe default filename
-            experiment_raw = normalize_umlauts(config["experiment"])
-            reference_raw = normalize_umlauts(config["reference"])
+            experiment_raw = NoUmlauts(config["experiment"])
+            reference_raw = NoUmlauts(config["reference"])
             safe_experiment = experiment_raw.replace(" ", "_").replace(".", "").replace(":", "")
             safe_reference = reference_raw.replace(" ", "_").replace(".", "").replace(":", "")
             default_filename = f"{safe_experiment}_{safe_reference}.xml"
@@ -330,7 +250,7 @@ def preview_and_confirm(data_rows, config):
     
                 # Generate PDF next to XML with same base name
                 pdf_path = os.path.splitext(output_path)[0] + ".pdf"
-                generate_payment_pdf(pdf_path, config.get("experiment"), data_rows, config.get("currency"), config.get("reference"))
+                MakePDF(pdf_path, config.get("experiment"), data_rows, config.get("currency"), config.get("reference"))
     
                 preview_window.destroy()
         except Exception as e:
@@ -339,159 +259,103 @@ def preview_and_confirm(data_rows, config):
     btn_frame = tk.Frame(preview_window)
     btn_frame.pack(pady=10)
 
-    tk.Button(btn_frame, text="Add amount to all payoffs", command=profit_masschange).grid(row=0, column=0, padx=10)
-    tk.Button(btn_frame, text="Add surplus participant", command=add_row).grid(row=0, column=1, padx=10)
-    tk.Button(btn_frame, text="Generate output files", command=confirm_and_generate).grid(row=0, column=2, padx=10)
-    tk.Button(btn_frame, text="Cancel", command=preview_window.destroy).grid(row=0, column=3, padx=10)
+    tk.Button(btn_frame, text = "Add amount to all payoffs", command = profit_masschange).grid(row=0, column=0, padx=10)
+    tk.Button(btn_frame, text = "Add surplus participant", command = add_surplus_participant).grid(row=0, column=1, padx=10)
+    tk.Button(btn_frame, text = "Generate output files", command = confirm_and_generate).grid(row=0, column=2, padx=10)
+    tk.Button(btn_frame, text = "Cancel", command = preview_window.destroy).grid(row=0, column=3, padx=10)
 
-def decode_file(payment_file):
-    with open(payment_file, "rb") as f:
-        rawdata = f.read()
 
-    result = chardet.detect(rawdata)
-    encoding = result["encoding"]
-    
-    try:
-        text = rawdata.decode(encoding)
-    except Exception as e:
-        print(f"Decoding failed ({encoding}): {e}.")
-    
-    return text
-    
+# Make GUI resolution adaptive to screen resolution
+import ctypes
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    pass
 
-def generate_sepa_preview(file_content, config, use_bic_lookup):
-    rows = []
-    f = io.StringIO(file_content)
-    reader = csv.DictReader(f, delimiter='\t')
-    
-    if 'adress' in reader.fieldnames:
-        old_payfile_format = False
-    else:
-        old_payfile_format = True
-        
-    for row in reader:
 
-        # Logic for zTree versions 5 and above (combo-pay file)
-        if old_payfile_format == False:
-            
-            # Skip rows that don't contain payee info (in files from zTree versions <6 it might otherwise try to strip other rows that are NoneType)
-            if not row.get('adress') or not row.get('Payment'):
-                continue
-            
-            first = row.get('firstName', '').strip()
-            last = row.get('lastName', '').strip()
-            name = normalize_umlauts(f"{first} {last}".strip())
-        
-            iban_raw = row.get('adress', '').strip().replace(" ", "").upper()
-            amount_str = row.get('Payment', '').strip()
-            
-    
-        # Different logic for older ztree versions with differently structured payment file
-        if old_payfile_format == True:
-    
-            # Skip rows that don't contain payee info (in files from zTree versions <6 it might otherwise try to strip other rows that are NoneType)
-            if not row.get('Name') or not row.get('Profit') or not row.get('Computer'):
-                continue
-            
-            name_iban_string = normalize_umlauts(row.get('Name', '').strip())
-            iban_raw_unformatted, name = [part.strip() for part in name_iban_string.split(',', 1)]                
-            iban_raw = iban_raw_unformatted.replace(" ", "")
-            amount_str = row.get('Profit', '').strip()
-
-        try:
-            iban_obj = IBAN(iban_raw)
-            amount = float(amount_str.replace(',', '.'))
-        except Exception:
-            continue
-
-        row_data = {
-            "name": name,
-            "iban": iban_raw,
-            "amount": amount,
-        }
-
-        try:
-            row_data["bic"] = iban_obj.bic
-        except Exception:
-            row_data["bic"] = None
-
-        rows.append(row_data)
-
-    if not rows:
-        messagebox.showwarning("No Valid Payments", "No valid payment entries were found.")
-        return
-
-    rows.sort(key=lambda r: r["name"].lower())
-    preview_and_confirm(rows, config)
-        
-
-# Set up GUI
-
+# Initialise GUI
 root = tk.Tk()
-root.title("zTreeSepa")
-root.geometry("800x360")
 
+
+# GUI settings 
+screen_w = int(root.winfo_screenwidth())
+screen_h = int(root.winfo_screenheight())
+root.minsize(800, 400)
+root.maxsize(screen_w, screen_h)
+root.title("zTreeSepa")
+
+
+# Add top menu bar
+menubar = tk.Menu(root)
+
+
+# Add file menu
+file_menu = tk.Menu(menubar, tearoff = 0)
+file_menu.add_command(label = "Import payment file", command = lambda: ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference_placeholder, experiment, experiment_placeholder))
+file_menu.add_separator()
+file_menu.add_command(label = "Quit", command = root.quit)
+menubar.add_cascade(label = "File", menu = file_menu)
+
+
+# Add help menu
+help_menu = tk.Menu(menubar, tearoff = 0)
+help_menu.add_command(label="Open GitHub", command = lambda: webbrowser.open(github_link))
+help_menu.add_command(label = "About", command = lambda: tk.messagebox.showinfo("About", f"zTreeSepa\n\nVersion {version}\nVersion date: {version_date}"))
+menubar.add_cascade(label = "Help", menu = help_menu)
+
+root.config(menu=menubar)
+
+# Use zTreeSepa icon for the window when running as .exe
 if getattr(sys, 'frozen', False):
     try:
         root.iconbitmap(sys.executable)
     except Exception:
         pass
 
-settings = load_settings()
-
-reference_placeholder = settings.get("placeholder_reference", "")
-experiment_placeholder = settings.get("placeholder_experiment", "")
-
-frame_settings = tk.LabelFrame(root, text="Company Banking Info", padx=10, pady=10)
+# Set up frame with payer infos
+frame_settings = tk.LabelFrame(root, text = "Payer Banking Info", padx=10, pady=10)
 frame_settings.pack(fill="x", padx=20, pady=10)
 
-info_label = tk.Label(root, text="Company details are read-only.\nTo change, edit settings.json manually.", fg="gray", justify="left")
+info_label = tk.Label(root, text = "Payer details are read-only.\nTo change, edit settings.json manually.", fg="gray", justify="left")
 info_label.pack(pady=(0, 10), padx=20, anchor="w")
 
-entry_name = tk.Entry(frame_settings, width=60, justify="left")
-entry_iban = tk.Entry(frame_settings, width=60, justify="left")
-entry_bic = tk.Entry(frame_settings, width=20, justify="left")
-entry_currency = tk.Entry(frame_settings, width=10, justify="left")
-entry_reference = tk.Entry(frame_settings, width=60, justify="left")
-entry_experiment = tk.Entry(frame_settings, width=60, justify="left")
+payer_name = settings.get("payer_name", "")
+payer_iban = settings.get("payer_iban", "")
+payer_bic = settings.get("payer_bic", "")
+currency = settings.get("currency", "EUR")
+                    
+payer_name_label = tk.Label(frame_settings, text = payer_name, width=60, anchor="w")
+payer_iban_label = tk.Label(frame_settings, text = payer_iban, width=60, anchor="w")
+payer_bic_label = tk.Label(frame_settings, text = payer_bic, width=60, anchor="w")
+currency_label = tk.Label(frame_settings, text = currency, width=60, anchor="w")
+
+reference = tk.Entry(frame_settings, width=70, justify="left")
+experiment = tk.Entry(frame_settings, width=70, justify="left")
 
 widgets = [
-    ("Company Name:", entry_name),
-    ("Company IBAN:", entry_iban),
-    ("Company BIC:", entry_bic),
-    ("Currency (e.g., EUR):", entry_currency),
-    ("Payment Reference:", entry_reference),
-    ("Experiment Name:", entry_experiment),
+    ("Payer Name:", payer_name_label),
+    ("Payer IBAN:", payer_iban_label),
+    ("Payer BIC:", payer_bic_label),
+    ("Currency:", currency_label),
+    ("Payment Reference:", reference),
+    ("Experiment Name:", experiment),
 ]
 
 for i, (label, widget) in enumerate(widgets):
-    tk.Label(frame_settings, text=label).grid(row=i, column=0, sticky="e")
-    widget.grid(row=i, column=1, padx=10, pady=5, sticky="w")
-
-entry_name.insert(0, settings.get("company_name", ""))
-entry_iban.insert(0, settings.get("company_iban", ""))
-entry_bic.insert(0, settings.get("company_bic", ""))
-entry_currency.insert(0, settings.get("currency", "EUR"))
-
-# Make these read-only
-entry_name.config(state="readonly")
-entry_iban.config(state="readonly")
-entry_bic.config(state="readonly")
-entry_currency.config(state="readonly")
+    tk.Label(frame_settings, text = label).grid(row=i, column=0, sticky="e")
+    widget.grid(row=i, column=1, padx=(10,0), pady=5, sticky="w")
 
 # Placeholder setup
 reference_placeholder = settings.get("placeholder_reference", "e.g. Payment Round 3")
 experiment_placeholder = settings.get("placeholder_experiment", "e.g. Study A - Session 1")
 
-entry_reference.delete(0, tk.END)
-entry_experiment.delete(0, tk.END)
+reference_placeholder_label = tk.Label(frame_settings, text = reference_placeholder, fg="gray", anchor="w", justify="left")
+reference_placeholder_label.grid(row=4, column=2, sticky="w", padx=(1,10))
 
-lbl_reference_placeholder = tk.Label(frame_settings, text=reference_placeholder, fg="gray", anchor="w", justify="left")
-lbl_reference_placeholder.grid(row=4, column=2, sticky="w", padx=(5,10))
+experiment_placeholder_label = tk.Label(frame_settings, text = experiment_placeholder, fg="gray", anchor="w", justify="left")
+experiment_placeholder_label.grid(row=5, column=2, sticky="w", padx=(1,10))
 
-lbl_experiment_placeholder = tk.Label(frame_settings, text=experiment_placeholder, fg="gray", anchor="w", justify="left")
-lbl_experiment_placeholder.grid(row=5, column=2, sticky="w", padx=(5,10))
-
-tk.Button(root, text="Import payment file", command=select_file, height=2, width=25).pack(pady=20)
+# Add button to import .pay file
+tk.Button(root, text = "Payment file", command = lambda: ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference_placeholder, experiment, experiment_placeholder), height=2, width=25).pack(pady=20)
 
 root.mainloop()
