@@ -215,6 +215,14 @@ def FileView(data_rows, config):
 
     def confirm_and_generate():
         try:
+            
+            # Build safe default filename
+            experiment_raw = NoUmlauts(config["experiment"])
+            reference_raw = NoUmlauts(config["reference"])
+            safe_experiment = experiment_raw.replace(" ", "_").replace(".", "").replace(":", "")
+            safe_reference = reference_raw.replace(" ", "_").replace(".", "").replace(":", "")
+            default_filename = f"{safe_experiment}_{safe_reference}.xml"
+
             sepa = SepaTransfer(config, schema = schema, clean=True)
             for idx, row in enumerate(data_rows, 1):
                 try:
@@ -225,19 +233,12 @@ def FileView(data_rows, config):
                         "amount": int(round(row["amount"] * 100)),
                         "execution_date": datetime.date.today() + datetime.timedelta(days=2),
                         "description": config["reference"][:140],
-                        "endtoend_id": str(uuid.uuid1()).replace("-", ""),
+                        "endtoend_id": str(idx + 10).encode("utf-8").hex()[:35] # Sort of arbitrary generation of end-to-end id (as long as it's unique)
                     }
                     sepa.add_payment(payment)
                 except Exception as e:
                     raise Exception(f"Error in row {idx} ({row['name']} - {row['iban']}): {e}")
     
-            # Build safe default filename
-            experiment_raw = NoUmlauts(config["experiment"])
-            reference_raw = NoUmlauts(config["reference"])
-            safe_experiment = experiment_raw.replace(" ", "_").replace(".", "").replace(":", "")
-            safe_reference = reference_raw.replace(" ", "_").replace(".", "").replace(":", "")
-            default_filename = f"{safe_experiment}_{safe_reference}.xml"
-            
             # Show dialog with prefilled name
             output_path = filedialog.asksaveasfilename(
                 defaultextension=".xml",
