@@ -9,8 +9,8 @@ zTree payment file to SEPA XML converter
 
 
 # Version info
-version = "0.5.0"
-version_date = "07 December 2025"
+version = "0.6.0"
+version_date = "21 December 2025"
 github_link = "https://github.com/jokannes/zTreeSepa"
 
 
@@ -19,7 +19,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import os
 import sys
-import datetime
+import datetime, uuid
 import webbrowser
 from schwifty import IBAN
 from sepaxml import SepaTransfer
@@ -86,6 +86,7 @@ def ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference
             "IBAN": payer_iban,
             "BIC": payer_bic,
             "batch": True,
+            # "domestic": True, # This seems to be required in CH (but ZKB accepts it without?), not sure if adding this will break things in DE
             "currency": currency,
             "reference": reference,
             "experiment": experiment
@@ -214,7 +215,7 @@ def FileView(data_rows, config):
 
     def confirm_and_generate():
         try:
-            sepa = SepaTransfer(config, clean=True)
+            sepa = SepaTransfer(config, schema = schema, clean=True)
             for idx, row in enumerate(data_rows, 1):
                 try:
                     payment = {
@@ -224,6 +225,7 @@ def FileView(data_rows, config):
                         "amount": int(round(row["amount"] * 100)),
                         "execution_date": datetime.date.today() + datetime.timedelta(days=2),
                         "description": config["reference"][:140],
+                        "endtoend_id": str(uuid.uuid1()).replace("-", ""),
                     }
                     sepa.add_payment(payment)
                 except Exception as e:
@@ -323,6 +325,7 @@ payer_name = settings.get("payer_name", "")
 payer_iban = settings.get("payer_iban", "")
 payer_bic = settings.get("payer_bic", "")
 currency = settings.get("currency", "EUR")
+schema = settings.get("default_schema", "")
                     
 payer_name_label = tk.Label(frame_settings, text = payer_name, width=60, anchor="w")
 payer_iban_label = tk.Label(frame_settings, text = payer_iban, width=60, anchor="w")

@@ -10,7 +10,8 @@ def LoadSettings(SETTINGS_FILE):
         "currency": "EUR",
         "placeholder_reference": "e.g., Lab Payment 10 July 2025 - 10am",
         "placeholder_experiment": "e.g., Study A - Session 1",
-        "default_amount": 5.00
+        "default_amount": 5.00,
+        "default_schema": "pain.001.001.03"
     }
 
     if not os.path.exists(SETTINGS_FILE):
