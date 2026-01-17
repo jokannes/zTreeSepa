@@ -14,7 +14,7 @@ You can either build the tool yourself using Python or you can download the .exe
 
 ## How to get a payment file from zTree
 
-For detailed information, please refer to the zTree manual. In short, after your treatment(s), you should run a questionnaire with an address form in it. After the conclusion of the questionnaire, the payment files are automatically created.
+For detailed information, please refer to the zTree manual. In short, after your treatment(s), you should run a questionnaire with an address form in it, where you collect the full name of your participants, as well as their IBAN in the address field. After the conclusion of the questionnaire, the payment files are automatically created.
 
 ## Setting your institution details
 
