@@ -16,7 +16,6 @@ def MakePDF(file_path, experiment_name, payments, currency, reference):
 
     # Table data: header + rows
     data = [["Index", "Name", "IBAN", "Amount", "Currency", "Reference"]]
-    total_sum = 0
 
     for idx, payment in enumerate(payments, 1):
         data.append([
@@ -27,7 +26,6 @@ def MakePDF(file_path, experiment_name, payments, currency, reference):
             currency,
             reference
         ])
-        total_sum += payment['amount']
 
     # Table style
     table = Table(data, repeatRows=1, hAlign='LEFT')

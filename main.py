@@ -9,8 +9,8 @@ zTree payment file to SEPA XML converter
 
 
 # Version info
-version = "0.6.0"
-version_date = "21 December 2025"
+version = "0.7.0"
+version_date = "13 June 2026"
 github_link = "https://github.com/jokannes/zTreeSepa"
 
 
@@ -21,6 +21,7 @@ import os
 import sys
 import datetime, uuid
 import webbrowser
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from schwifty import IBAN
 from sepaxml import SepaTransfer
 
@@ -35,7 +36,6 @@ from parse import ParseFile
 # Get correct working directory
 if getattr(sys, 'frozen', False):
     # Running as exe
-    base_path = sys._MEIPASS
     app_path = os.path.dirname(sys.executable)
 else:
     # Running as script
@@ -133,13 +133,13 @@ def FileView(data_rows, config):
         tree.column(col, width=width, anchor=anchor)
 
     for idx, row in enumerate(data_rows, 1):
-        tree.insert("", "end", values=(idx, row["name"], row["iban"], row.get("bic", ""), f"{row['amount']:.2f}"))
+        tree.insert("", "end", values=(idx, row["name"], row["iban"], row.get("bic") or "", f"{row['amount']:.2f}"))
 
     def profit_masschange():
         def apply_profit_masschange():
             try:
-                delta = float(entry_amount_change.get().strip().replace(",", "."))
-            except ValueError:
+                delta = Decimal(entry_amount_change.get().strip().replace(",", ".")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            except InvalidOperation:
                 messagebox.showerror("Invalid Input", "Please enter a valid number.")
                 return
 
@@ -149,7 +149,7 @@ def FileView(data_rows, config):
             for item in tree.get_children():
                 tree.delete(item)
             for idx, row in enumerate(data_rows, 1):
-                tree.insert("", "end", values=(idx, row["name"], row["iban"], row["bic"], f"{row['amount']:.2f}"))
+                tree.insert("", "end", values=(idx, row["name"], row["iban"], row.get("bic") or "", f"{row['amount']:.2f}"))
 
             add_window.destroy()
 
@@ -172,7 +172,7 @@ def FileView(data_rows, config):
 
             try:
                 IBAN(iban_raw)
-                amount = float(amount_str.replace(',', '.'))
+                amount = Decimal(amount_str.replace(',', '.')).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             except Exception:
                 messagebox.showwarning("Invalid Input", "Check IBAN and amount format.")
                 return
@@ -186,7 +186,7 @@ def FileView(data_rows, config):
                 tree.delete(row)
             
             for idx, row in enumerate(data_rows, 1):
-                tree.insert("", "end", values=(idx, row["name"], row["iban"], row["bic"], f"{row['amount']:.2f}"))
+                tree.insert("", "end", values=(idx, row["name"], row["iban"], row.get("bic") or "", f"{row['amount']:.2f}"))
             
             add_window.destroy()
 
@@ -223,18 +223,28 @@ def FileView(data_rows, config):
             safe_reference = reference_raw.replace(" ", "_").replace(".", "").replace(":", "")
             default_filename = f"{safe_experiment}_{safe_reference}.xml"
 
+            # SEPA only allows positive transfer amounts (can happen after "Add amount to all payoffs" with a negative value)
+            invalid_rows = [(idx, row) for idx, row in enumerate(data_rows, 1) if row["amount"] <= 0]
+            if invalid_rows:
+                info = "\n".join(f"Row {idx}: {row['name']} ({row['amount']:.2f})" for idx, row in invalid_rows)
+                messagebox.showerror("Invalid Amounts", f"All payment amounts must be greater than zero. Please check:\n\n{info}")
+                return
+
             sepa = SepaTransfer(config, schema = schema, clean=True)
             for idx, row in enumerate(data_rows, 1):
                 try:
                     payment = {
                         "name": row["name"][:70],
                         "IBAN": row["iban"],
-                        "BIC": row.get("bic") or "",
-                        "amount": int(round(row["amount"] * 100)),
+                        "amount": int(row["amount"] * 100),
                         "execution_date": datetime.date.today() + datetime.timedelta(days=2),
                         "description": config["reference"][:140],
-                        "endtoend_id": str(idx + 10).encode("utf-8").hex()[:35] # Sort of arbitrary generation of end-to-end id (as long as it's unique)
+                        "endtoend_id": uuid.uuid4().hex # Unique across sessions so the bank's duplicate detection isn't tripped
                     }
+                    # Omit the BIC key when unknown: sepaxml emits an empty <BIC/>
+                    # for "" which fails schema validation, but skips it when absent
+                    if row.get("bic"):
+                        payment["BIC"] = row["bic"]
                     sepa.add_payment(payment)
                 except Exception as e:
                     raise Exception(f"Error in row {idx} ({row['name']} - {row['iban']}): {e}")
@@ -249,12 +259,16 @@ def FileView(data_rows, config):
             if output_path:
                 with open(output_path, "wb") as out:
                     out.write(sepa.export())
-                messagebox.showinfo("Success", "Output files generated.")
-    
+
                 # Generate PDF next to XML with same base name
                 pdf_path = os.path.splitext(output_path)[0] + ".pdf"
-                MakePDF(pdf_path, config.get("experiment"), data_rows, config.get("currency"), config.get("reference"))
-    
+                try:
+                    MakePDF(pdf_path, config.get("experiment"), data_rows, config.get("currency"), config.get("reference"))
+                except Exception as e:
+                    messagebox.showwarning("PDF Error", f"The SEPA XML file was written, but the PDF could not be created:\n{e}")
+                else:
+                    messagebox.showinfo("Success", "Output files generated.")
+
                 preview_window.destroy()
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -326,7 +340,7 @@ payer_name = settings.get("payer_name", "")
 payer_iban = settings.get("payer_iban", "")
 payer_bic = settings.get("payer_bic", "")
 currency = settings.get("currency", "EUR")
-schema = settings.get("default_schema", "")
+schema = settings.get("default_schema") or "pain.001.001.03"
                     
 payer_name_label = tk.Label(frame_settings, text = payer_name, width=60, anchor="w")
 payer_iban_label = tk.Label(frame_settings, text = payer_iban, width=60, anchor="w")

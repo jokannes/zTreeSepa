@@ -1,5 +1,6 @@
 import csv
 import io
+from decimal import Decimal, ROUND_HALF_UP
 from utils import NoUmlauts
 from schwifty import IBAN
 from tkinter import messagebox
@@ -9,9 +10,13 @@ def ParseFile(file_content):
     discarded_rows = []
     f = io.StringIO(file_content)
     reader = csv.DictReader(f, delimiter='\t')
+    if reader.fieldnames is None:
+        raise ValueError("The payment file is empty.")
     old_format = 'adress' not in reader.fieldnames
 
     for row in reader:
+        name = None
+        iban_raw = None
         try:
             
             # Different logic for older ztree versions with differently structured payment file
@@ -22,7 +27,7 @@ def ParseFile(file_content):
                     continue
                 name_iban, name = [NoUmlauts(part.strip()) for part in row['Name'].split(',', 1)]
                 iban_raw = name_iban.replace(" ", "")
-                amount = float(row['Profit'].strip().replace(',', '.'))
+                amount = Decimal(row['Profit'].strip().replace(',', '.'))
             
             # Logic for zTree versions 5 and above (combo-pay file)
             else:
@@ -34,15 +39,22 @@ def ParseFile(file_content):
                 last = row.get('lastName', '').strip()
                 name = NoUmlauts(f"{first} {last}".strip())
                 iban_raw = row.get('adress', '').strip().replace(" ", "").upper()
-                amount = float(row['Payment'].strip().replace(',', '.'))
+                amount = Decimal(row['Payment'].strip().replace(',', '.'))
 
+            amount = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             iban_obj = IBAN(iban_raw)
             valid_rows.append({"name": name, "iban": str(iban_obj), "amount": amount, "bic": getattr(iban_obj, "bic", None)})
         except Exception:
-            discarded_rows.append({"name": name, "iban": iban_raw})
-    
+            # name/iban_raw may not have been set yet when the error occurred -
+            # fall back to the raw fields so the warning still identifies the row
+            if name is None:
+                name = (row.get('Name')
+                        or f"{row.get('firstName') or ''} {row.get('lastName') or ''}".strip()
+                        or "<unknown>")
+            discarded_rows.append({"name": name, "iban": iban_raw or "<unknown>"})
+
     if discarded_rows:
-        discard_info = "\n".join(f"{r.get('name')} | IBAN: {r.get('iban_raw')}" for r in discarded_rows)
+        discard_info = "\n".join(f"{r['name']} | IBAN: {r['iban']}" for r in discarded_rows)
         messagebox.showwarning(
             "Invalid or Skipped Rows",
             f"{len(discarded_rows)} rows were discarded due to invalid IBANs or parsing errors:\n\n{discard_info}"

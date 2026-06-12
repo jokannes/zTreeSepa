@@ -16,14 +16,15 @@ def LoadSettings(SETTINGS_FILE):
 
     if not os.path.exists(SETTINGS_FILE):
         try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8-sig") as f:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
                 json.dump(default_settings, f, indent=4)
         except Exception as e:
             messagebox.showerror("Error", f"Could not create default settings.json: {e}")
             return default_settings
 
     try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+        # utf-8-sig also tolerates a BOM, which Notepad may add when users edit the file
+        with open(SETTINGS_FILE, "r", encoding="utf-8-sig") as f:
             return json.load(f)
     except Exception as e:
         messagebox.showerror("Error", f"Failed to load settings.json: {e}")
