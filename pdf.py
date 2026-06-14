@@ -4,28 +4,42 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
-def MakePDF(file_path, experiment_name, payments, currency, reference):
+def MakePDF(file_path, experiment_name, payments, currency, reference, anonymous=False):
     doc = SimpleDocTemplate(file_path, pagesize=landscape(A4))
     styles = getSampleStyleSheet()
     elements = []
 
     # Title
-    title = Paragraph(f"<b>Experiment: {experiment_name}</b>", styles['Title'])
+    title_suffix = " (anonymous)" if anonymous else ""
+    title = Paragraph(f"<b>Experiment: {experiment_name}{title_suffix}</b>", styles['Title'])
     elements.append(title)
     elements.append(Spacer(1, 12))
 
-    # Table data: header + rows
-    data = [["Index", "Name", "IBAN", "Amount", "Currency", "Reference"]]
+    # Table data: header + rows. The anonymous variant replaces the personal
+    # columns (Name, IBAN) with the unique End-to-End ID of each payment.
+    if anonymous:
+        data = [["Index", "End-to-End ID", "Amount", "Currency", "Reference"]]
+    else:
+        data = [["Index", "Name", "IBAN", "Amount", "Currency", "Reference"]]
 
     for idx, payment in enumerate(payments, 1):
-        data.append([
-            str(idx),
-            payment["name"],
-            payment["iban"],
-            f"{payment['amount']:.2f}",
-            currency,
-            reference
-        ])
+        if anonymous:
+            data.append([
+                str(idx),
+                payment.get("endtoend_id", ""),
+                f"{payment['amount']:.2f}",
+                currency,
+                reference
+            ])
+        else:
+            data.append([
+                str(idx),
+                payment["name"],
+                payment["iban"],
+                f"{payment['amount']:.2f}",
+                currency,
+                reference
+            ])
 
     # Table style
     table = Table(data, repeatRows=1, hAlign='LEFT')

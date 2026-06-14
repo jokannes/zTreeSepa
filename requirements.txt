@@ -2,3 +2,4 @@ schwifty
 sepaxml
 reportlab
 chardet
+pyzipper

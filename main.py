@@ -9,8 +9,8 @@ zTree payment file to SEPA XML converter
 
 
 # Version info
-version = "0.7.0"
-version_date = "13 June 2026"
+version = "0.8.0"
+version_date = "14 June 2026"
 github_link = "https://github.com/jokannes/zTreeSepa"
 
 
@@ -31,6 +31,7 @@ from utils import NoUmlauts, DecodeFile
 from settings import LoadSettings
 from pdf import MakePDF
 from parse import ParseFile
+from archive import MakeZip
 
 
 # Get correct working directory
@@ -93,6 +94,79 @@ def ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference
         })
     except Exception as e:
         messagebox.showerror("Error", str(e))
+
+
+# Modal dialog asking whether to zip the generated files and, optionally,
+# encrypt the zip with a password. Returns a dict: {"zip", "encrypt", "password"}.
+# The password is never stored anywhere; it lives only in the returned dict for
+# the duration of the export.
+def AskZipOptions(parent):
+    dialog = tk.Toplevel(parent)
+    dialog.title("Zip Options")
+    dialog.transient(parent)
+    dialog.resizable(False, False)
+    dialog.grab_set()
+
+    result = {"zip": False, "encrypt": False, "password": None}
+    state = {"ok": False}  # distinguishes OK from cancel/close
+
+    zip_var = tk.BooleanVar(value=False)
+    encrypt_var = tk.BooleanVar(value=False)
+
+    zip_check = tk.Checkbutton(dialog, text="Do you want to zip the generated files?", variable=zip_var)
+    encrypt_check = tk.Checkbutton(dialog, text="Do you want to encrypt the zip file?", variable=encrypt_var)
+    password_label = tk.Label(dialog, text="Zip password:")
+    password_entry = tk.Entry(dialog, show="*")
+
+    # Encryption is only selectable once zipping is chosen; the password field
+    # is only active once encryption is chosen. Disabled controls are reset so
+    # no stale selection or password can leak through.
+    def update_states():
+        if zip_var.get():
+            encrypt_check.config(state="normal")
+        else:
+            encrypt_var.set(False)
+            encrypt_check.config(state="disabled")
+        if zip_var.get() and encrypt_var.get():
+            password_entry.config(state="normal")
+        else:
+            password_entry.delete(0, tk.END)
+            password_entry.config(state="disabled")
+
+    zip_check.config(command=update_states)
+    encrypt_check.config(command=update_states)
+
+    zip_check.grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(12, 4))
+    encrypt_check.grid(row=1, column=0, columnspan=2, sticky="w", padx=(34, 10), pady=4)
+    password_label.grid(row=2, column=0, sticky="e", padx=(34, 4), pady=(4, 12))
+    password_entry.grid(row=2, column=1, sticky="w", padx=(0, 10), pady=(4, 12))
+
+    def on_ok():
+        if zip_var.get() and encrypt_var.get() and not password_entry.get():
+            messagebox.showwarning("Password Required",
+                                   "Please enter a password or turn off encryption.",
+                                   parent=dialog)
+            return
+        result["zip"] = zip_var.get()
+        result["encrypt"] = encrypt_var.get()
+        result["password"] = password_entry.get() if (zip_var.get() and encrypt_var.get()) else None
+        state["ok"] = True
+        dialog.destroy()
+
+    def on_cancel():
+        # Leave state["ok"] False so the caller knows to discard the output.
+        dialog.destroy()
+
+    btn_frame = tk.Frame(dialog)
+    btn_frame.grid(row=3, column=0, columnspan=2, pady=(0, 12))
+    tk.Button(btn_frame, text="OK", width=10, command=on_ok).grid(row=0, column=0, padx=6)
+    tk.Button(btn_frame, text="Cancel", width=10, command=on_cancel).grid(row=0, column=1, padx=6)
+
+    dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+
+    update_states()  # apply the initial greyed-out states
+    parent.wait_window(dialog)
+    return result if state["ok"] else None
 
 
 # Set up the file viewer for after a .pay file has been opened
@@ -233,13 +307,17 @@ def FileView(data_rows, config):
             sepa = SepaTransfer(config, schema = schema, clean=True)
             for idx, row in enumerate(data_rows, 1):
                 try:
+                    # Unique across sessions so the bank's duplicate detection isn't tripped.
+                    # Stored back on the row so the anonymous PDF can identify each payment by it.
+                    endtoend_id = uuid.uuid4().hex
+                    row["endtoend_id"] = endtoend_id
                     payment = {
                         "name": row["name"][:70],
                         "IBAN": row["iban"],
                         "amount": int(row["amount"] * 100),
                         "execution_date": datetime.date.today() + datetime.timedelta(days=2),
                         "description": config["reference"][:140],
-                        "endtoend_id": uuid.uuid4().hex # Unique across sessions so the bank's duplicate detection isn't tripped
+                        "endtoend_id": endtoend_id
                     }
                     # Omit the BIC key when unknown: sepaxml emits an empty <BIC/>
                     # for "" which fails schema validation, but skips it when absent
@@ -260,12 +338,53 @@ def FileView(data_rows, config):
                 with open(output_path, "wb") as out:
                     out.write(sepa.export())
 
-                # Generate PDF next to XML with same base name
-                pdf_path = os.path.splitext(output_path)[0] + ".pdf"
-                try:
-                    MakePDF(pdf_path, config.get("experiment"), data_rows, config.get("currency"), config.get("reference"))
-                except Exception as e:
-                    messagebox.showwarning("PDF Error", f"The SEPA XML file was written, but the PDF could not be created:\n{e}")
+                # Generate PDF next to XML with same base name, plus an
+                # anonymous twin that lists only the End-to-End IDs (no names/IBANs).
+                # Each PDF is attempted independently so a failure in one still
+                # produces the other.
+                base_path = os.path.splitext(output_path)[0]
+                generated_files = [output_path]
+                pdf_errors = []
+                for path, anon in ((base_path + ".pdf", False), (base_path + "_anonymous.pdf", True)):
+                    try:
+                        MakePDF(path, config.get("experiment"), data_rows, config.get("currency"), config.get("reference"), anonymous=anon)
+                        generated_files.append(path)
+                    except Exception as e:
+                        pdf_errors.append(f"{os.path.basename(path)}: {e}")
+
+                # Everything that can fail has now been written, so only now do we
+                # ask about zipping - the user never fills in the zip dialog just
+                # to be hit with a generation error afterwards.
+                zip_choice = AskZipOptions(preview_window)
+
+                # Cancelling/closing the dialog discards the export entirely: remove
+                # the loose files and return to the payment list.
+                if zip_choice is None:
+                    for f in generated_files:
+                        try:
+                            os.remove(f)
+                        except OSError:
+                            pass
+                    return
+
+                zip_error = None
+                if zip_choice["zip"]:
+                    zip_path = base_path + ".zip"
+                    password = zip_choice["password"] if zip_choice["encrypt"] else None
+                    try:
+                        MakeZip(zip_path, generated_files, password)
+                        # Bundled successfully: replace the loose files with the zip.
+                        for f in generated_files:
+                            os.remove(f)
+                    except Exception as e:
+                        zip_error = str(e)
+
+                problems = list(pdf_errors)
+                if zip_error:
+                    problems.append(f"Zip: {zip_error}")
+                if problems:
+                    messagebox.showwarning("Output Warning",
+                                           "The SEPA XML file was written, but there were problems:\n" + "\n".join(problems))
                 else:
                     messagebox.showinfo("Success", "Output files generated.")
 
