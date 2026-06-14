@@ -116,7 +116,7 @@ def AskZipOptions(parent):
     zip_check = tk.Checkbutton(dialog, text="Do you want to zip the generated files?", variable=zip_var)
     encrypt_check = tk.Checkbutton(dialog, text="Do you want to encrypt the zip file?", variable=encrypt_var)
     password_label = tk.Label(dialog, text="Zip password:")
-    password_entry = tk.Entry(dialog, show="*")
+    password_entry = tk.Entry(dialog)  # shown in clear text by request
 
     # Encryption is only selectable once zipping is chosen; the password field
     # is only active once encryption is chosen. Disabled controls are reset so
@@ -165,6 +165,14 @@ def AskZipOptions(parent):
     dialog.protocol("WM_DELETE_WINDOW", on_cancel)
 
     update_states()  # apply the initial greyed-out states
+
+    # Center the dialog over the parent window rather than the top-left corner.
+    dialog.update_idletasks()
+    dw, dh = dialog.winfo_reqwidth(), dialog.winfo_reqheight()
+    x = parent.winfo_rootx() + (parent.winfo_width() - dw) // 2
+    y = parent.winfo_rooty() + (parent.winfo_height() - dh) // 2
+    dialog.geometry(f"+{x}+{y}")
+
     parent.wait_window(dialog)
     return result if state["ok"] else None
 
@@ -327,7 +335,14 @@ def FileView(data_rows, config):
                 except Exception as e:
                     raise Exception(f"Error in row {idx} ({row['name']} - {row['iban']}): {e}")
     
-            # Show dialog with prefilled name
+            # Ask about zipping/encryption first. Cancelling/closing the dialog
+            # aborts the export (nothing has been written yet) and returns to the
+            # payment list.
+            zip_choice = AskZipOptions(preview_window)
+            if zip_choice is None:
+                return
+
+            # Then choose where to save, with the prefilled name
             output_path = filedialog.asksaveasfilename(
                 defaultextension=".xml",
                 filetypes=[("XML files", "*.xml")],
@@ -351,21 +366,6 @@ def FileView(data_rows, config):
                         generated_files.append(path)
                     except Exception as e:
                         pdf_errors.append(f"{os.path.basename(path)}: {e}")
-
-                # Everything that can fail has now been written, so only now do we
-                # ask about zipping - the user never fills in the zip dialog just
-                # to be hit with a generation error afterwards.
-                zip_choice = AskZipOptions(preview_window)
-
-                # Cancelling/closing the dialog discards the export entirely: remove
-                # the loose files and return to the payment list.
-                if zip_choice is None:
-                    for f in generated_files:
-                        try:
-                            os.remove(f)
-                        except OSError:
-                            pass
-                    return
 
                 zip_error = None
                 if zip_choice["zip"]:
