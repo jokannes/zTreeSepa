@@ -303,7 +303,7 @@ def FileView(data_rows, config):
             reference_raw = NoUmlauts(config["reference"])
             safe_experiment = experiment_raw.replace(" ", "_").replace(".", "").replace(":", "")
             safe_reference = reference_raw.replace(" ", "_").replace(".", "").replace(":", "")
-            default_filename = f"{safe_experiment}_{safe_reference}.xml"
+            default_basename = f"{safe_experiment}_{safe_reference}"
 
             # SEPA only allows positive transfer amounts (can happen after "Add amount to all payoffs" with a negative value)
             invalid_rows = [(idx, row) for idx, row in enumerate(data_rows, 1) if row["amount"] <= 0]
@@ -342,23 +342,31 @@ def FileView(data_rows, config):
             if zip_choice is None:
                 return
 
-            # Then choose where to save, with the prefilled name
+            # Then choose where to save. When zipping, offer the .zip extension so
+            # the proposed file matches what actually ends up on disk.
+            if zip_choice["zip"]:
+                save_ext, save_types = ".zip", [("Zip files", "*.zip")]
+            else:
+                save_ext, save_types = ".xml", [("XML files", "*.xml")]
             output_path = filedialog.asksaveasfilename(
-                defaultextension=".xml",
-                filetypes=[("XML files", "*.xml")],
-                initialfile=default_filename
+                defaultextension=save_ext,
+                filetypes=save_types,
+                initialfile=default_basename + save_ext
             )
 
             if output_path:
-                with open(output_path, "wb") as out:
+                # The chosen path may carry the .zip or .xml extension; derive the
+                # base name and always write the XML/PDFs from that.
+                base_path = os.path.splitext(output_path)[0]
+                xml_path = base_path + ".xml"
+                with open(xml_path, "wb") as out:
                     out.write(sepa.export())
 
                 # Generate PDF next to XML with same base name, plus an
                 # anonymous twin that lists only the End-to-End IDs (no names/IBANs).
                 # Each PDF is attempted independently so a failure in one still
                 # produces the other.
-                base_path = os.path.splitext(output_path)[0]
-                generated_files = [output_path]
+                generated_files = [xml_path]
                 pdf_errors = []
                 for path, anon in ((base_path + ".pdf", False), (base_path + "_anonymous.pdf", True)):
                     try:
@@ -441,12 +449,17 @@ menubar.add_cascade(label = "Help", menu = help_menu)
 
 root.config(menu=menubar)
 
-# Use zTreeSepa icon for the window when running as .exe
-if getattr(sys, 'frozen', False):
-    try:
-        root.iconbitmap(sys.executable)
-    except Exception:
-        pass
+# Use the zTreeSepa icon for the main window and every dialog. Passing
+# default=... sets it as the application-wide icon so child Toplevels inherit
+# it instead of falling back to the Tk feather.
+try:
+    if getattr(sys, 'frozen', False):
+        icon_source = sys.executable  # icon is embedded in the .exe
+    else:
+        icon_source = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
+    root.iconbitmap(default=icon_source)
+except Exception:
+    pass
 
 # Set up frame with payer infos
 frame_settings = tk.LabelFrame(root, text = "Payer Banking Info", padx=10, pady=10)
@@ -493,6 +506,6 @@ experiment_placeholder_label = tk.Label(frame_settings, text = experiment_placeh
 experiment_placeholder_label.grid(row=5, column=2, sticky="w", padx=(1,10))
 
 # Add button to import .pay file
-tk.Button(root, text = "Payment file", command = lambda: ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference_placeholder, experiment, experiment_placeholder), height=2, width=25).pack(pady=20)
+tk.Button(root, text = "Import payment file", command = lambda: ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference_placeholder, experiment, experiment_placeholder), height=2, width=25).pack(pady=20)
 
 root.mainloop()
