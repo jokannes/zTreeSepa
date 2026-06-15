@@ -9,8 +9,8 @@ zTree payment file to SEPA XML converter
 
 
 # Version info
-version = "0.8.0"
-version_date = "14 June 2026"
+version = "0.9.0"
+version_date = "15 June 2026"
 github_link = "https://github.com/jokannes/zTreeSepa"
 
 
@@ -19,6 +19,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import os
 import sys
+import tempfile
 import datetime, uuid
 import webbrowser
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
@@ -94,6 +95,49 @@ def ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference
         })
     except Exception as e:
         messagebox.showerror("Error", str(e))
+
+
+# Yes/No prompt asking whether to print the regular (non-anonymous) payment
+# PDF. Built as a custom Toplevel rather than messagebox.askyesno so it carries
+# no system question-mark icon. Returns True if the user chose Yes.
+def AskPrintOption(parent):
+    dialog = tk.Toplevel(parent)
+    dialog.title("Print PDF")
+    dialog.transient(parent)
+    dialog.resizable(False, False)
+    dialog.grab_set()
+
+    state = {"yes": False}
+
+    tk.Label(
+        dialog,
+        text="Print PDF?\n\nIt will be sent to the default printer with no further confirmation.",
+        justify="left"
+    ).grid(row=0, column=0, columnspan=2, sticky="w", padx=16, pady=(14, 10))
+
+    def on_yes():
+        state["yes"] = True
+        dialog.destroy()
+
+    def on_no():
+        dialog.destroy()
+
+    btn_frame = tk.Frame(dialog)
+    btn_frame.grid(row=1, column=0, columnspan=2, pady=(0, 12))
+    tk.Button(btn_frame, text="Yes", width=10, command=on_yes).grid(row=0, column=0, padx=6)
+    tk.Button(btn_frame, text="No", width=10, command=on_no).grid(row=0, column=1, padx=6)
+
+    dialog.protocol("WM_DELETE_WINDOW", on_no)
+
+    # Center over the parent window rather than the top-left corner.
+    dialog.update_idletasks()
+    dw, dh = dialog.winfo_reqwidth(), dialog.winfo_reqheight()
+    x = parent.winfo_rootx() + (parent.winfo_width() - dw) // 2
+    y = parent.winfo_rooty() + (parent.winfo_height() - dh) // 2
+    dialog.geometry(f"+{x}+{y}")
+
+    parent.wait_window(dialog)
+    return state["yes"]
 
 
 # Modal dialog asking whether to zip the generated files and, optionally,
@@ -335,6 +379,20 @@ def FileView(data_rows, config):
                 except Exception as e:
                     raise Exception(f"Error in row {idx} ({row['name']} - {row['iban']}): {e}")
     
+            # Offer to print the regular (non-anonymous) PDF before continuing.
+            # A throwaway copy is generated in the temp directory and handed to
+            # the OS "print" verb, which sends it to the default printer. The
+            # real PDFs are still written to the chosen location further below.
+            # The temp file is left for the OS to clean up: the print handler
+            # opens it asynchronously, so deleting it here could cut printing off.
+            if AskPrintOption(preview_window):
+                try:
+                    tmp_pdf = os.path.join(tempfile.gettempdir(), default_basename + "_print.pdf")
+                    MakePDF(tmp_pdf, config.get("experiment"), data_rows, config.get("currency"), config.get("reference"), anonymous=False)
+                    os.startfile(tmp_pdf, "print")
+                except Exception as e:
+                    messagebox.showwarning("Print Failed", f"Could not print the PDF:\n{e}", parent=preview_window)
+
             # Ask about zipping/encryption first. Cancelling/closing the dialog
             # aborts the export (nothing has been written yet) and returns to the
             # payment list.
