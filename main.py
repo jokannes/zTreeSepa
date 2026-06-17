@@ -28,7 +28,7 @@ from sepaxml import SepaTransfer
 
 
 # Import own functions
-from utils import NoUmlauts, DecodeFile
+from utils import NoUmlauts, SepaClean, DecodeFile
 from settings import LoadSettings
 from pdf import MakePDF
 from parse import ParseFile
@@ -51,7 +51,7 @@ settings = LoadSettings(settings_file)
 
 # Function for reading a .pay file
 def ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference_placeholder, experiment, experiment_placeholder):
-    payer_name = NoUmlauts(payer_name.strip())
+    payer_name = SepaClean(payer_name)
     payer_iban = payer_iban.strip().replace(" ", "")
     payer_bic = payer_bic.strip()
     currency = currency.strip().upper()
@@ -90,7 +90,7 @@ def ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference
             "batch": True,
             # "domestic": True, # This seems to be required in CH (but ZKB accepts it without?), not sure if adding this will break things in DE
             "currency": currency,
-            "reference": reference,
+            "reference": SepaClean(reference),
             "experiment": experiment
         })
     except Exception as e:
@@ -288,7 +288,7 @@ def FileView(data_rows, config):
 
     def add_surplus_participant():
         def save_surplus_participant():
-            name = NoUmlauts(surplus_name.get().strip())
+            name = SepaClean(surplus_name.get())
             iban_raw = surplus_iban.get().strip().replace(" ", "").upper()
             amount_str = surplus_amount.get().strip()
 
