@@ -1,7 +1,7 @@
 import csv
 import io
 from decimal import Decimal, ROUND_HALF_UP
-from utils import NoUmlauts
+from utils import SepaClean
 from schwifty import IBAN
 from tkinter import messagebox
 
@@ -25,8 +25,9 @@ def ParseFile(file_content):
                 # Skip rows that don't contain payee info (in files from zTree versions <6 it might otherwise try to strip other rows that are NoneType)
                 if not row.get('Name') or not row.get('Profit') or not row.get('Computer'):
                     continue
-                name_iban, name = [NoUmlauts(part.strip()) for part in row['Name'].split(',', 1)]
-                iban_raw = name_iban.replace(" ", "")
+                name_iban, name = row['Name'].split(',', 1)
+                name = SepaClean(name)
+                iban_raw = name_iban.strip().replace(" ", "")
                 amount = Decimal(row['Profit'].strip().replace(',', '.'))
             
             # Logic for zTree versions 5 and above (combo-pay file)
@@ -37,7 +38,7 @@ def ParseFile(file_content):
                     continue
                 first = row.get('firstName', '').strip()
                 last = row.get('lastName', '').strip()
-                name = NoUmlauts(f"{first} {last}".strip())
+                name = SepaClean(f"{first} {last}")
                 iban_raw = row.get('adress', '').strip().replace(" ", "").upper()
                 amount = Decimal(row['Payment'].strip().replace(',', '.'))
 
