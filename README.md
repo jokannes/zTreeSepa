@@ -4,7 +4,7 @@ This is a tool to create a SEPA XML batch payment file from zTree payment files 
 
 # Description
 
-The zTree software for economic experiments (Fischbacher, 2007) automatically creates a payment file at the end of a lab session. The zTreeSepa tool allows manual addition of surplus participants and automatic conversion of the payment info to a SEPA XML payment file according to the pain.001.001.03 schema.
+The zTree software for economic experiments (Fischbacher, 2007) automatically creates a payment file at the end of a lab session. The zTreeSepa tool allows manual addition of surplus participants and automatic conversion of the payment info to a SEPA XML payment file according to the pain.001.001.09 schema (other schemas are available).
 
 # Usage
 
@@ -16,9 +16,9 @@ You can either build the tool yourself using Python or you can download the .exe
 
 For detailed information, please refer to the zTree manual. In short, after your treatment(s), you should run a questionnaire with an address form in it, where you collect the full name of your participants, as well as their IBAN in the address field. After the conclusion of the questionnaire, the payment files are automatically created.
 
-## Setting your institution details
+## Setting the initiating party
 
-You can set your institution's banking details by amending the info in settings.json - this file will be generated automatically when you first run zTreeSepa. The initial data is testing data. The account you set here will be the debitor account of the payment. Specify the currency with the three-digit code according to the ISO 4217 standard. In zTreeSepa, you set the payment reference, which will be the same for each individual transaction. Specify the experiment name for documentation reasons. Note that your institution details are saved permanently in the settings.json in the same directory as the .exe (or .py script, depending on how you run it), so that you don't have to re-enter your institution details each time you use the tool.
+You can set your institution's banking details (name, IBAN, BIC and currency) under Settings > Initiating party. When you first run zTreeSepa, the details are filled with testing data. The account you set here will be the debitor account of the payment. If you leave the BIC empty, it is looked up automatically from the IBAN. Specify the currency with the three-letter code according to the ISO 4217 standard. In zTreeSepa, you set the payment reference, which will be the same for each individual transaction. Specify the experiment name for documentation reasons. Your institution details are saved permanently in the settings.json in the same directory as the .exe (or .py script, depending on how you run it), so that you don't have to re-enter them each time you use the tool. You can still edit settings.json manually if you prefer.
 
 ## Importing the payment file and adding surplus participants
 
@@ -34,8 +34,7 @@ The tool supports payment files from zTree versions 4, 5 and 6. Other versions m
 
 
 
-The default XML schema used is pain.001.001.03, but you can change this by manually editing the settings.json file and using other pain credit transfer schemas (as long as they are supported by the SepaXML Python library).
-
+The default XML schema is pain.001.001.09, but you can choose a different schema under Settings > Payment format. pain.001.001.03 (legacy), pain.001.001.10 and pain.001.001.11 are available. Changing the payment format or the initiating party can lead to invalid payment files, and to the bank rejecting these payments, so only do this if you know what you're doing (e.g. if your bank explicitly asks for a different schema).
 
 
 Note that you can only add new transactions, but you cannot amend existing rows in the preview. I may add this feature later depending on demand. So far, I have only tested it for payments within Germany. In theory, it should also work for other SEPA countries as the payment file format is highly standardised. If you have any feature requests, feel free to contact me at jokannes@proton.me :)

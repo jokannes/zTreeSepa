@@ -9,8 +9,8 @@ zTree payment file to SEPA XML converter
 
 
 # Version info
-version = "0.9.0"
-version_date = "15 June 2026"
+version = "0.10.0"
+version_date = "28 October 2026"
 github_link = "https://github.com/jokannes/zTreeSepa"
 
 
@@ -23,13 +23,13 @@ import tempfile
 import datetime, uuid
 import webbrowser
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
-from schwifty import IBAN
+from schwifty import IBAN, BIC
 from sepaxml import SepaTransfer
 
 
 # Import own functions
 from utils import NoUmlauts, DecodeFile
-from settings import LoadSettings
+from settings import LoadSettings, SaveSettings, DEFAULT_SCHEMA, SUPPORTED_SCHEMAS
 from pdf import MakePDF
 from parse import ParseFile
 from archive import MakeZip
@@ -44,7 +44,7 @@ else:
     app_path = os.path.dirname(os.path.abspath(__file__))
 
 
-# Load settings (payer banking info is here)
+# Load settings (initiating party info and payment format are here)
 settings_file = os.path.join(app_path, "settings.json")
 settings = LoadSettings(settings_file)
 
@@ -97,9 +97,7 @@ def ImportFile(payer_name, payer_iban, payer_bic, currency, reference, reference
         messagebox.showerror("Error", str(e))
 
 
-# Yes/No prompt asking whether to print the regular (non-anonymous) payment
-# PDF. Built as a custom Toplevel rather than messagebox.askyesno so it carries
-# no system question-mark icon. Returns True if the user chose Yes.
+# Yes/No prompt asking whether to print the regular (non-anonymous) payment PDF. Built as a custom Toplevel rather than messagebox.askyesno so it carries no system question-mark icon. Returns True if the user chose Yes.
 def AskPrintOption(parent):
     dialog = tk.Toplevel(parent)
     dialog.title("Print PDF")
@@ -220,6 +218,151 @@ def AskZipOptions(parent):
     parent.wait_window(dialog)
     return result if state["ok"] else None
 
+
+# Warning shown at the top of every dialog in the Settings menu.
+SETTINGS_WARNING = ("Changing these can lead to invalid payment files, and to the bank "
+                    "rejecting these payments. Only proceed if you know what you're doing.")
+
+
+# Centre a dialog over its parent window rather than the top-left corner of the screen (same approach as in AskPrintOption/AskZipOptions).
+def CenterOverParent(dialog, parent):
+    dialog.update_idletasks()
+    dw, dh = dialog.winfo_reqwidth(), dialog.winfo_reqheight()
+    x = parent.winfo_rootx() + (parent.winfo_width() - dw) // 2
+    y = parent.winfo_rooty() + (parent.winfo_height() - dh) // 2
+    dialog.geometry(f"+{x}+{y}")
+
+
+# Red warning label used at the top of the Settings dialogs. wraplength is given in inches ("i") rather than pixels so the line width scales with the DPI awareness set further below.
+def SettingsWarningLabel(dialog):
+    return tk.Label(dialog, text=SETTINGS_WARNING, fg="#b00000",
+                    wraplength="4.5i", justify="left")
+
+
+# Settings > Payment format: choose the pain schema for the SEPA XML file. The choice is saved to settings.json ("default_schema") and used for all files generated afterwards, including in this session.
+def PaymentFormatDialog(parent):
+    dialog = tk.Toplevel(parent)
+    dialog.title("Payment format")
+    dialog.transient(parent)
+    dialog.resizable(False, False)
+    dialog.grab_set()
+
+    SettingsWarningLabel(dialog).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 10))
+    tk.Label(dialog, text="Schema for the bank transfer file:").grid(row=1, column=0, sticky="w", padx=16, pady=(0, 4))
+
+    # One radio button per supported schema, preselecting the one in use
+    schema_var = tk.StringVar(value=schema)
+    for i, (name, description) in enumerate(SUPPORTED_SCHEMAS.items()):
+        tk.Radiobutton(dialog, text=f"{name}  -  {description}", variable=schema_var,
+                       value=name, anchor="w").grid(row=2 + i, column=0, sticky="w", padx=(28, 16))
+
+    def on_ok():
+        global schema
+        new_schema = schema_var.get()
+        if new_schema != schema:
+            # Save a copy first and only apply it once writing succeeded, so a failed save doesn't leave the app using an unsaved setting
+            updated = dict(settings, default_schema=new_schema)
+            if not SaveSettings(settings_file, updated):
+                return
+            settings.update(updated)
+            schema = new_schema
+        dialog.destroy()
+
+    btn_frame = tk.Frame(dialog)
+    btn_frame.grid(row=2 + len(SUPPORTED_SCHEMAS), column=0, pady=12)
+    tk.Button(btn_frame, text="OK", width=10, command=on_ok).grid(row=0, column=0, padx=6)
+    tk.Button(btn_frame, text="Cancel", width=10, command=dialog.destroy).grid(row=0, column=1, padx=6)
+
+    CenterOverParent(dialog, parent)
+    parent.wait_window(dialog)
+
+
+# Settings > Initiating party: edit name, IBAN, BIC and currency of the paying account. Values are validated, saved to settings.json and shown in the main window right away.
+def InitiatingPartyDialog(parent):
+    dialog = tk.Toplevel(parent)
+    dialog.title("Initiating party")
+    dialog.transient(parent)
+    dialog.resizable(False, False)
+    dialog.grab_set()
+
+    SettingsWarningLabel(dialog).grid(row=0, column=0, columnspan=2, sticky="w", padx=16, pady=(14, 10))
+
+    # (label, settings.json key) for each editable field
+    fields = [
+        ("Name:", "payer_name"),
+        ("IBAN:", "payer_iban"),
+        ("BIC:", "payer_bic"),
+        ("Currency:", "currency"),
+    ]
+    entries = {}
+    for i, (label, key) in enumerate(fields, start=1):
+        tk.Label(dialog, text=label).grid(row=i, column=0, sticky="e", padx=(16, 4), pady=4)
+        entry = tk.Entry(dialog, width=45)
+        entry.insert(0, settings.get(key, ""))
+        entry.grid(row=i, column=1, sticky="w", padx=(0, 16), pady=4)
+        entries[key] = entry
+
+    tk.Label(dialog, text="If the BIC is left empty, it is looked up from the IBAN.\n"
+                          "Currency: three-letter ISO 4217 code, e.g. EUR.",
+             fg="gray", justify="left").grid(row=len(fields) + 1, column=0, columnspan=2, sticky="w", padx=16, pady=(4, 0))
+
+    def on_ok():
+        global payer_name, payer_iban, payer_bic, currency
+
+        name = entries["payer_name"].get().strip()
+        iban_raw = entries["payer_iban"].get().strip().replace(" ", "").upper()
+        bic_raw = entries["payer_bic"].get().strip().replace(" ", "").upper()
+        currency_raw = entries["currency"].get().strip().upper()
+
+        if not name:
+            messagebox.showwarning("Missing Info", "Please enter a name.", parent=dialog)
+            return
+
+        try:
+            iban_obj = IBAN(iban_raw)
+        except Exception:
+            messagebox.showerror("Invalid IBAN", "The IBAN is not valid.", parent=dialog)
+            return
+
+        # An empty BIC would produce an empty <BICFI/> element, which fails schema validation, so fill it in from the IBAN where possible
+        if not bic_raw:
+            looked_up = iban_obj.bic
+            if looked_up is None:
+                messagebox.showwarning("Missing BIC", "The BIC could not be looked up from the IBAN. Please enter it.", parent=dialog)
+                return
+            bic_raw = str(looked_up)
+        try:
+            BIC(bic_raw)
+        except Exception:
+            messagebox.showerror("Invalid BIC", "The BIC is not valid.", parent=dialog)
+            return
+
+        if len(currency_raw) != 3 or not currency_raw.isalpha():
+            messagebox.showerror("Invalid Currency", "Please enter a three-letter currency code, e.g. EUR.", parent=dialog)
+            return
+
+        # Save a copy first and only apply it once writing succeeded
+        updated = dict(settings, payer_name=name, payer_iban=str(iban_obj),
+                       payer_bic=bic_raw, currency=currency_raw)
+        if not SaveSettings(settings_file, updated):
+            return
+        settings.update(updated)
+
+        # Update the globals that ImportFile() reads, and the main window labels
+        payer_name, payer_iban, payer_bic, currency = name, str(iban_obj), bic_raw, currency_raw
+        payer_name_label.config(text=payer_name)
+        payer_iban_label.config(text=payer_iban)
+        payer_bic_label.config(text=payer_bic)
+        currency_label.config(text=currency)
+        dialog.destroy()
+
+    btn_frame = tk.Frame(dialog)
+    btn_frame.grid(row=len(fields) + 2, column=0, columnspan=2, pady=12)
+    tk.Button(btn_frame, text="Save", width=10, command=on_ok).grid(row=0, column=0, padx=6)
+    tk.Button(btn_frame, text="Cancel", width=10, command=dialog.destroy).grid(row=0, column=1, padx=6)
+
+    CenterOverParent(dialog, parent)
+    parent.wait_window(dialog)
 
 # Set up the file viewer for after a .pay file has been opened
 def FileView(data_rows, config):
@@ -499,6 +642,13 @@ file_menu.add_command(label = "Quit", command = root.quit)
 menubar.add_cascade(label = "File", menu = file_menu)
 
 
+# Add settings menu (between File and Help)
+settings_menu = tk.Menu(menubar, tearoff = 0)
+settings_menu.add_command(label = "Payment format", command = lambda: PaymentFormatDialog(root))
+settings_menu.add_command(label = "Initiating party", command = lambda: InitiatingPartyDialog(root))
+menubar.add_cascade(label = "Settings", menu = settings_menu)
+
+
 # Add help menu
 help_menu = tk.Menu(menubar, tearoff = 0)
 help_menu.add_command(label="Open GitHub", command = lambda: webbrowser.open(github_link))
@@ -519,18 +669,18 @@ try:
 except Exception:
     pass
 
-# Set up frame with payer infos
-frame_settings = tk.LabelFrame(root, text = "Payer Banking Info", padx=10, pady=10)
+# Set up frame with initiating party infos
+frame_settings = tk.LabelFrame(root, text = "Initiating party", padx=10, pady=10)
 frame_settings.pack(fill="x", padx=20, pady=10)
 
-info_label = tk.Label(root, text = "Payer details are read-only.\nTo change, edit settings.json manually.", fg="gray", justify="left")
+info_label = tk.Label(root, text = "Initiating party details are read-only here.\nTo change them, use Settings > Initiating party.", fg="gray", justify="left")
 info_label.pack(pady=(0, 10), padx=20, anchor="w")
 
 payer_name = settings.get("payer_name", "")
 payer_iban = settings.get("payer_iban", "")
 payer_bic = settings.get("payer_bic", "")
 currency = settings.get("currency", "EUR")
-schema = settings.get("default_schema") or "pain.001.001.03"
+schema = settings.get("default_schema") or DEFAULT_SCHEMA
                     
 payer_name_label = tk.Label(frame_settings, text = payer_name, width=60, anchor="w")
 payer_iban_label = tk.Label(frame_settings, text = payer_iban, width=60, anchor="w")
