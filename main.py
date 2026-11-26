@@ -9,8 +9,8 @@ zTree payment file to SEPA XML converter
 
 
 # Version info
-version = "0.10.0"
-version_date = "28 October 2026"
+version = "0.10.1"
+version_date = "26 November 2026"
 github_link = "https://github.com/jokannes/zTreeSepa"
 
 

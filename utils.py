@@ -1,20 +1,22 @@
 import re
-import chardet
+import codecs
 from text_unidecode import unidecode
 
 def DecodeFile(payment_file):
     with open(payment_file, "rb") as f:
         rawdata = f.read()
 
-    result = chardet.detect(rawdata)
-    encoding = result["encoding"] or "utf-8"
+    # UTF-16 is only recognisable by its byte order mark
+    if rawdata.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return rawdata.decode("utf-16")
 
+    # Strict UTF-8 ("-sig" drops a leading BOM); Windows-1252 umlauts are never valid UTF-8, so those files fall through to cp1252
     try:
-        return rawdata.decode(encoding)
-    except (UnicodeDecodeError, LookupError):
-        # latin-1 maps every byte, so this cannot fail; rows that were
-        # garbled by the wrong encoding are caught by the IBAN validation
-        return rawdata.decode("latin-1")
+        return rawdata.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+
+    return rawdata.decode("cp1252", errors="replace")
 
 def NoUmlauts(text):
     return (
@@ -49,3 +51,8 @@ def SepaClean(text):
     text = text.replace("&", "+")
     text = "".join(c if c in _SEPA_ALLOWED else " " for c in text)
     return re.sub(r"\s+", " ", text).strip()
+
+def NeedsReview(raw, cleaned):
+    """Return True if SepaClean changed a name by more than the routine steps."""
+    expected = re.sub(r"\s+", " ", NoUmlauts(raw)).strip()
+    return cleaned != expected

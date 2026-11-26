@@ -2,5 +2,4 @@ schwifty
 sepaxml
 text-unidecode
 reportlab
-chardet
 pyzipper
